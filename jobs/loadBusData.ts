@@ -6,9 +6,7 @@ import BusSnapshot from "../models/BusSnapshot.js";
 import * as url from "node:url";
 
 dotenv.config();
-
-export default async function run() {
-  const connection = await mongoose.connect(process.env.MONGOURI as string);
+async function run() {
   const response = await fetch(
     "https://passio3.com/www/mapGetData.php?getBuses=1&deviceId=3367966&wTransloc=1",
     {
@@ -55,18 +53,27 @@ export default async function run() {
           currentLoad: paxLoad,
           routeId,
         });
-        await snapshot.save().catch(err=>console.log("An error has occurred validation: %s",err.message));
+        await snapshot
+          .save()
+          .catch((err) =>
+            console.log("An error has occurred validation: %s", err.message)
+          );
       }
     )
   );
-  connection.disconnect();
 }
-
+export default function runPeriodically(
+  seconds: number = 5
+) {
+  setInterval(async () => {
+    await run();
+  }, seconds * 1000);
+}
 if (import.meta.url.startsWith("file:")) {
-  // (A)
+  const connection = await mongoose.connect(process.env.MONGOURI as string);
+
   const modulePath = url.fileURLToPath(import.meta.url);
   if (process.argv[1] === modulePath) {
-    // (B)
-    await run();
+    await runPeriodically();
   }
 }

@@ -1,4 +1,15 @@
 import mongoose from "mongoose";
+export interface Snapshot{
+  lat: number,
+  lng: number,
+  course: number,
+  lastUpdated: Date,
+  busCode: string,
+  maxLoad: number,
+  currentLoad: number,
+  routeId: number,
+  busNumber:string
+}
 const schema = new mongoose.Schema({
   lat: Number,
   lng: Number,
@@ -12,4 +23,4 @@ const schema = new mongoose.Schema({
 });
 schema.index({ busNumber: 1, lastUpdated: 1 }, { unique: true });
 
-export default mongoose.model("BusSnapshot", schema);
+export default mongoose.model<Snapshot>("BusSnapshot", schema);
