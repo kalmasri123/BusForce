@@ -6,6 +6,7 @@ import StopTiming from "../models/StopTiming.js";
 
 import * as url from "node:url";
 import { ApplicationCommandPermissionType } from "discord.js";
+import { createWriteStream, fstat } from "node:fs";
 
 dotenv.config();
 const stops: any = await (
@@ -36,48 +37,112 @@ function measureDistance(
   lon2: number
 ) {
   // generally used geo measurement function
-  var R = 6378.137; // Radius of earth in KM
-  var dLat = (lat2 * Math.PI) / 180 - (lat1 * Math.PI) / 180;
-  var dLon = (lon2 * Math.PI) / 180 - (lon1 * Math.PI) / 180;
-  var a =
-    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-    Math.cos((lat1 * Math.PI) / 180) *
-      Math.cos((lat2 * Math.PI) / 180) *
-      Math.sin(dLon / 2) *
-      Math.sin(dLon / 2);
-  var c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-  var d = R * c;
-  return d * 1000; // meters
+  const latDiffMeters = Math.abs(lat1 - lat2) * 111.32 * 1000;
+  const lngDiffMeters =
+    Math.abs(
+      (lon1 - lon2) * 40075 * 1000 * Math.cos(degreesToRadians(lat1 - lat2))
+    ) / 360;
+  return (latDiffMeters + lngDiffMeters) / 2;
+  // return { width: latDiffMeters, height: lngDiffMeters };
 }
 const EARTH_RADIUS = 6_371_000;
 
 /**Checks if bus is at a valid stop. Returns null if not.**/
-const getCurrentStop = async (snapshot: Snapshot) => {
-  const routeStops: (string | number)[] = stops.routes[`${snapshot.routeId}`]
-    .slice(3)
-    .map((el: string | number[]) => el[1]);
-  const stopId = routeStops.find((stop) => {
-    const currentStop = stops.stops[`ID${stop}`];
-    const course = snapshot.course;
+const getCurrentStop = (snapshot: Snapshot, previousStop: any) => {
+  const routeStops: (string | number)[][] =
+    stops.routes[`${snapshot.routeId}`].slice(3);
+  const stopsFound = routeStops
+    .filter((stop, i) => {
+      const currentStop:any = stops.stops[`ID${stop[1]}`];
+      //stop[0] = position
+      if (previousStop) {
+        // console.log(previousStop);
+      }
+      if (previousStop) {
+        const previousIndex = routeStops.findIndex(
+          (el) => previousStop.id == el[1]
+        );
+        {
+          if (
+            previousStop.id == currentStop.id ||
+            (previousIndex > i && previousIndex < routeStops.length - 1) ||
+            (i - previousIndex > 1)
+          )
+            return false;
+        }
+      }
+      const normalizedCourse = 180 - snapshot.course - 90;
 
-    const latDiff = snapshot.lat - currentStop.latitude;
-    const lngDiff = snapshot.lng - currentStop.longitude;
+      // const latDiff = currentStop.latitude - snapshot.lat;
+      // const lngDiff = currentStop.longitude - snapshot.lng;
+      const snapshotWestOfStop = snapshot.lng < currentStop.longitude;
+      const snapshotSouthOfStop = snapshot.lat < currentStop.latitude;
 
-    const distance = measureDistance(
-      snapshot.lat,
-      snapshot.lng,
-      currentStop.latitude,
-      currentStop.longitude
-    );
-    const cosCourse = Math.cos(degreesToRadians( course-90));
-    const sinCourse = Math.sin(degreesToRadians( course-90));
+      const diff = measureDistance(
+        snapshot.lat,
+        snapshot.lng,
+        currentStop.latitude,
+        currentStop.longitude
+      );
 
-    if (distance < 70 && cosCourse * latDiff >= 0 && sinCourse * lngDiff >= 0) {
-      return currentStop
-    }
-    // console.log(latDiff, lngDiff);
-  });
-  return stops.stops[`ID${stopId}`]
+      const cosCourse = Math.cos(degreesToRadians(normalizedCourse - 90));
+      const sinCourse = Math.sin(degreesToRadians(normalizedCourse - 90));
+      // const fieldWidth = cosCourse * 35;
+      // const fieldHeight = sinCourse * 35;
+      if (diff <= 45) {
+        return true;
+        // if (sinCourse >= 0 && cosCourse >= 0 && snapshotWestOfStop) {
+        //   return true;
+        // } else if (sinCourse >= 0 && cosCourse < 0 && snapshotSouthOfStop) {
+        //   if (currentStop.name == "Athletics Complex East") {
+        //     // console.log(snapshot, currentStop, normalizedCourse, diff);
+        //   }
+        //   //bus should be facing south-west. so bus should be looking for stop north
+        //   return true;
+        // } else if (
+        //   sinCourse < 0 &&
+        //   cosCourse >= 0 &&
+        //   (snapshotWestOfStop || snapshotSouthOfStop)
+        // ) {
+        //   return true;
+        // } else if (
+        //   sinCourse < 0 &&
+        //   cosCourse < 0 &&
+        //   (!snapshotWestOfStop || !snapshotSouthOfStop)
+        // ) {
+        //   //bus should be facing south-west. so bus should be looking for stop north
+        //   return true;
+        // }
+        // console.log(currentStop)
+        // console.log(snapshot)
+        // console.log(normalizedCourse,diff,fieldWidth,fieldHeight)
+        return false;
+        return currentStop;
+      }
+      return false;
+    })
+    .map((el) => el[1]);
+  const distances: number[] = [];
+  const minDistance = Math.min(
+    ...stopsFound
+      .map((el) => stops.stops[`ID${el}`])
+      .map((el) => {
+        const dist = measureDistance(
+          snapshot.lat,
+          snapshot.lng,
+          el.latitude,
+          el.longitude
+        );
+        distances.push(dist);
+        return dist;
+      })
+  );
+  // console.log(stops.stops[
+  //   `ID${stopsFound.find((el, i) => distances[i] == minDistance)}`
+  // ])
+  return stops.stops[
+    `ID${stopsFound.find((el, i) => distances[i] == minDistance)}`
+  ];
 };
 const calculateTiming = async (busNumber: string) => {
   const maxTimeStampQuery = await StopTiming.find({ busNumber })
@@ -90,33 +155,33 @@ const calculateTiming = async (busNumber: string) => {
       $gte: maxTimeStampQuery.length > 0 ? maxTimeStampQuery[0].timeStamp : 0,
     },
   }).sort({ lastUpdated: 1 });
-  let stopA:any = null;
-  let snapshotA:Snapshot;
+  let stopA: any = null;
+  let snapshotA: Snapshot;
   // let stopB:any = null;
-  snapshots.forEach(async (snapshot, i) => {
-    const stopCheck:any = await getCurrentStop(snapshot)
-    
+  snapshots.forEach((snapshot, i) => {
+    const stopCheck: any = getCurrentStop(snapshot, stopA);
+
     if (!stopA && stopCheck) {
-      console.log("FIRST STOP")
+      console.log("FIRST STOP");
       stopA = stopCheck;
       snapshotA = snapshot;
-
-      console.log(stopA)
-      console.log(snapshotA)
-
+      console.log(180 - snapshot.course - 90);
+      console.log(stopA);
+      console.log(snapshotA);
 
       return;
     }
-    if(stopA && stopCheck && stopCheck.stopId != stopA?.stopId){
-      console.log(stopA.name)
-      
+    if (stopA && stopCheck && stopCheck.stopId != stopA?.stopId) {
+      console.log(stopA.name);
+
       stopA = stopCheck;
-      console.log(stopA.name)
+      console.log(stopA.name);
+      console.log(180 - snapshot.course - 90);
 
-      console.log("TIME DIFF:\t",snapshot.lastUpdated.getTime()-snapshotA.lastUpdated.getTime())
-      // console.log(stopA)
-      // console.log(snapshot)
-
+      console.log(
+        "TIME DIFF:\t",
+        snapshot.lastUpdated.getTime() - snapshotA.lastUpdated.getTime()
+      );
 
       snapshotA = snapshot;
     }
@@ -141,7 +206,7 @@ export default async function runPeriodically(seconds: number = 5) {
 }
 if (import.meta.url.startsWith("file:")) {
   const connection = await mongoose.connect(process.env.MONGOURI as string);
-
+  process.stdout.pipe(createWriteStream("out.txt", { flags: "a" }));
   const modulePath = url.fileURLToPath(import.meta.url);
   if (process.argv[1] === modulePath) {
     await runPeriodically(60000);
