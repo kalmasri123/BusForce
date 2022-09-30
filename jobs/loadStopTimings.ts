@@ -83,6 +83,7 @@ const getCurrentStop = (snapshot: Snapshot, previousStop: any) => {
       );
 
       if (diff <= 45) {
+        console.log("IS AT STOP")
         return true;  
       }
       return false;
@@ -176,7 +177,7 @@ async function run() {
   const items = await BusSnapshot.distinct("busNumber");
   await Promise.all(items.map(calculateTiming));
 }
-export default async function runPeriodically(seconds: number = 5) {
+export default async function runPeriodically(seconds: number = 600000) {
   let running = false;
   await run();
   setInterval(async () => {
