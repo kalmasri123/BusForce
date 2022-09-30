@@ -49,6 +49,10 @@ const EARTH_RADIUS = 6_371_000;
 
 /**Checks if bus is at a valid stop. Returns null if not.**/
 const getCurrentStop = (snapshot: Snapshot, previousStop: any) => {
+  // console.log(stops.routes)
+  if(!stops.routes[`${snapshot.routeId}`]){
+    return null;
+  }
   const routeStops: (string | number)[][] =
     stops.routes[`${snapshot.routeId}`].slice(3);
   const stopsFound = routeStops
