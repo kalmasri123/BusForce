@@ -175,18 +175,17 @@ async function run() {
 export default async function runPeriodically(seconds: number = 5) {
   let running = false;
   await run();
-  // setInterval(async () => {
-  //   if (!running) {
-  //     //Prevents job overlap
-  //     running = true;
-  //     await run();
-  //     running = false;
-  //   }
-  // }, seconds * 1000);
+  setInterval(async () => {
+    if (!running) {
+      //Prevents job overlap
+      running = true;
+      await run();
+      running = false;
+    }
+  }, seconds * 1000);
 }
 if (import.meta.url.startsWith("file:")) {
   const connection = await mongoose.connect(process.env.MONGOURI as string);
-  process.stdout.pipe(createWriteStream("out.txt", { flags: "a" }));
   const modulePath = url.fileURLToPath(import.meta.url);
   if (process.argv[1] === modulePath) {
     await runPeriodically(60000);
