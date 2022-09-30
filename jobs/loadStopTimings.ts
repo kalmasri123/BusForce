@@ -5,8 +5,8 @@ import BusSnapshot, { Snapshot } from "../models/BusSnapshot.js";
 import StopTiming from "../models/StopTiming.js";
 
 import * as url from "node:url";
-import { ApplicationCommandPermissionType } from "discord.js";
 import { createWriteStream, fstat } from "node:fs";
+import Nullable from "./types/Nullable.js";
 
 dotenv.config();
 const stops: any = await (
@@ -53,7 +53,7 @@ const getCurrentStop = (snapshot: Snapshot, previousStop: any) => {
     stops.routes[`${snapshot.routeId}`].slice(3);
   const stopsFound = routeStops
     .filter((stop, i) => {
-      const currentStop:any = stops.stops[`ID${stop[1]}`];
+      const currentStop: any = stops.stops[`ID${stop[1]}`];
       //stop[0] = position
       if (previousStop) {
         // console.log(previousStop);
@@ -66,18 +66,11 @@ const getCurrentStop = (snapshot: Snapshot, previousStop: any) => {
           if (
             previousStop.id == currentStop.id ||
             (previousIndex > i && previousIndex < routeStops.length - 1) ||
-            (i - previousIndex > 1)
+            i - previousIndex > 1
           )
             return false;
         }
       }
-      const normalizedCourse = 180 - snapshot.course - 90;
-
-      // const latDiff = currentStop.latitude - snapshot.lat;
-      // const lngDiff = currentStop.longitude - snapshot.lng;
-      const snapshotWestOfStop = snapshot.lng < currentStop.longitude;
-      const snapshotSouthOfStop = snapshot.lat < currentStop.latitude;
-
       const diff = measureDistance(
         snapshot.lat,
         snapshot.lng,
@@ -85,39 +78,8 @@ const getCurrentStop = (snapshot: Snapshot, previousStop: any) => {
         currentStop.longitude
       );
 
-      const cosCourse = Math.cos(degreesToRadians(normalizedCourse - 90));
-      const sinCourse = Math.sin(degreesToRadians(normalizedCourse - 90));
-      // const fieldWidth = cosCourse * 35;
-      // const fieldHeight = sinCourse * 35;
       if (diff <= 45) {
-        return true;
-        // if (sinCourse >= 0 && cosCourse >= 0 && snapshotWestOfStop) {
-        //   return true;
-        // } else if (sinCourse >= 0 && cosCourse < 0 && snapshotSouthOfStop) {
-        //   if (currentStop.name == "Athletics Complex East") {
-        //     // console.log(snapshot, currentStop, normalizedCourse, diff);
-        //   }
-        //   //bus should be facing south-west. so bus should be looking for stop north
-        //   return true;
-        // } else if (
-        //   sinCourse < 0 &&
-        //   cosCourse >= 0 &&
-        //   (snapshotWestOfStop || snapshotSouthOfStop)
-        // ) {
-        //   return true;
-        // } else if (
-        //   sinCourse < 0 &&
-        //   cosCourse < 0 &&
-        //   (!snapshotWestOfStop || !snapshotSouthOfStop)
-        // ) {
-        //   //bus should be facing south-west. so bus should be looking for stop north
-        //   return true;
-        // }
-        // console.log(currentStop)
-        // console.log(snapshot)
-        // console.log(normalizedCourse,diff,fieldWidth,fieldHeight)
-        return false;
-        return currentStop;
+        return true;  
       }
       return false;
     })
@@ -155,54 +117,72 @@ const calculateTiming = async (busNumber: string) => {
       $gte: maxTimeStampQuery.length > 0 ? maxTimeStampQuery[0].timeStamp : 0,
     },
   }).sort({ lastUpdated: 1 });
+  console.log(snapshots.length)
   let stopA: any = null;
-  let snapshotA: Snapshot;
+  let snapshotA: Nullable<Snapshot> = null;
   // let stopB:any = null;
-  snapshots.forEach((snapshot, i) => {
+  for(let snapshot of snapshots){
     const stopCheck: any = getCurrentStop(snapshot, stopA);
 
     if (!stopA && stopCheck) {
       console.log("FIRST STOP");
       stopA = stopCheck;
       snapshotA = snapshot;
-      console.log(180 - snapshot.course - 90);
-      console.log(stopA);
-      console.log(snapshotA);
+      // console.log(180 - snapshot.course - 90);
+      // console.log(stopA);
+      // console.log(snapshotA);
 
-      return;
+      continue;
     }
     if (stopA && stopCheck && stopCheck.stopId != stopA?.stopId) {
-      console.log(stopA.name);
+
+      const comparedSnapshot = snapshotA as Snapshot
+      let timeTaken =
+        snapshot.lastUpdated.getTime() - comparedSnapshot.lastUpdated.getTime();
+      let timeStamp = new Date(snapshot.lastUpdated);
+      let busNumber = snapshot.busNumber;
+      let routeId = snapshot.routeId;
+      let loadChange = snapshot.currentLoad - comparedSnapshot.currentLoad;
+      // console.log("Inserting",timeTaken)
+      const stopTiming = await new StopTiming({
+        timeStamp,
+        busNumber,
+        loadChange,
+        timeTaken,
+        routeId,
+        fromStop:stopA.stopId,
+        toStop:stopCheck.stopId
+      });
+      await stopTiming
+        .save()
+        .catch((err) =>
+          console.log("An error has occurred validation: %s", err.message)
+        );
+      snapshotA = snapshot;
+      // console.log(stopA.name);
 
       stopA = stopCheck;
-      console.log(stopA.name);
-      console.log(180 - snapshot.course - 90);
-
-      console.log(
-        "TIME DIFF:\t",
-        snapshot.lastUpdated.getTime() - snapshotA.lastUpdated.getTime()
-      );
-
-      snapshotA = snapshot;
+      // console.log(stopA.name);
+     
     }
-  });
+  };
 };
 async function run() {
   //Get all existing bus numbers. this is used to group and to not block entire job
   const items = await BusSnapshot.distinct("busNumber");
-  await Promise.all([items[1]].map(calculateTiming));
+  await Promise.all(items.map(calculateTiming));
 }
 export default async function runPeriodically(seconds: number = 5) {
   let running = false;
   await run();
-  setInterval(async () => {
-    if (!running) {
-      //Prevents job overlap
-      running = true;
-      await run();
-      running = false;
-    }
-  }, seconds * 1000);
+  // setInterval(async () => {
+  //   if (!running) {
+  //     //Prevents job overlap
+  //     running = true;
+  //     await run();
+  //     running = false;
+  //   }
+  // }, seconds * 1000);
 }
 if (import.meta.url.startsWith("file:")) {
   const connection = await mongoose.connect(process.env.MONGOURI as string);
