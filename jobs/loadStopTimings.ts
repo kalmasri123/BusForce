@@ -176,6 +176,9 @@ async function run() {
   //Get all existing bus numbers. this is used to group and to not block entire job
   const items = await BusSnapshot.distinct("busNumber");
   await Promise.all(items.map(calculateTiming));
+  for(let item of items){
+    await calculateTiming(item)
+  }
 }
 export default async function runPeriodically(seconds: number = 600000) {
   let running = false;
