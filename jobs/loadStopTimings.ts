@@ -116,17 +116,16 @@ const calculateTiming = async (busNumber: string) => {
     .sort({ timeStamp: -1 })
     .limit(1);
   //Lowest timestamp to search for to avoid recalculating
-  const snapshots = await BusSnapshot.find({
+  const snapshots = BusSnapshot.find({
     busNumber,
     lastUpdated: {
       $gte: maxTimeStampQuery.length > 0 ? maxTimeStampQuery[0].timeStamp : 0,
     },
   }).sort({ lastUpdated: 1 });
-  console.log(snapshots.length)
   let stopA: any = null;
   let snapshotA: Nullable<Snapshot> = null;
   // let stopB:any = null;
-  for(let snapshot of snapshots){
+  for await (const snapshot of snapshots.cursor()){
     const stopCheck: any = getCurrentStop(snapshot, stopA);
 
     if (!stopA && stopCheck) {
